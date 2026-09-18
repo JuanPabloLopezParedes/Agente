@@ -72,7 +72,7 @@ def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=prompt_usuario,
         config=types.GenerateContentConfig(
             system_instruction=prompt_sistema,
