@@ -1,7 +1,6 @@
 import os
 import json
 import uuid
-import time
 from datetime import datetime
 from enum import Enum
 from dotenv import load_dotenv
@@ -48,7 +47,7 @@ class AnalisisPQRS(BaseModel):
     requiere_escalado_humano: bool = Field(description="True si la solicitud requiere intervención humana urgente")
     borrador_respuesta: str = Field(description="Respuesta profesional dirigida al cliente")
 
-# 4. Función de análisis con el agente (Tolerante a fallos 503)
+# 4. Función de análisis con el agente
 def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     prompt = f"""
     Eres un agente inteligente especializado en gestión de PQRS.
@@ -58,40 +57,17 @@ def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     \"\"\"{texto_cliente}\"\"\"
     """
 
-    # Modelos estables de respaldo en caso de alta demanda
-    modelos_candidatos = [
-        "gemini-2.5-flash",
-        "gemini-1.5-flash",
-        "gemini-2.0-flash"
-    ]
+    response = client.models.generate_content(
+        model="gemini-3.5-flash-lite",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=AnalisisPQRS,
+            temperature=0.1
+        ),
+    )
 
-    ultimo_error = None
-
-    for modelo in modelos_candidatos:
-        for intento in range(3):  # Reintentos progresivos
-            try:
-                response = client.models.generate_content(
-                    model=modelo,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=AnalisisPQRS,
-                        temperature=0.1
-                    ),
-                )
-                return AnalisisPQRS.model_validate_json(response.text)
-
-            except Exception as e:
-                ultimo_error = e
-                error_str = str(e)
-                
-                # Si el servidor responde saturado, espera 2, 4 o 6 segundos antes de reintentar
-                if any(k in error_str for k in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"]):
-                    time.sleep(2 * (intento + 1))
-                else:
-                    break  # Si es otro error, cambia directamente de modelo
-
-    raise RuntimeError(f"El servicio de IA no estuvo disponible tras reintentar. Detalle: {ultimo_error}")
+    return AnalisisPQRS.model_validate_json(response.text)
 
 # 5. Sistema de Persistencia y Reglas de Negocio
 DB_FILE = "tickets_pqrs.json"
@@ -133,7 +109,7 @@ def procesar_flujo_pqrs(texto_cliente: str):
     ticket = guardar_ticket(analisis, texto_cliente)
 
     # 3. Mostrar Resumen del Procesamiento
-    print(f"\n✅ TICKET CREADO EXITOSAMENTE | ID: {ticket['id_ticket']}")
+    print(f"\n✅ TICKET CREADO CON ÉXITO | ID: {ticket['id_ticket']}")
     print(f"• Fecha/Hora: {ticket['fecha_registro']}")
     print(f"• Tipo: {analisis.tipo.value}")
     print(f"• Prioridad: {analisis.prioridad.value}")
