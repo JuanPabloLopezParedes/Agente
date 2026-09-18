@@ -83,7 +83,7 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Tarjetas de Métricas del Sidebar */
+    /* Tarjetas de Métricas del Sidebar (Estilo Tarjeta de Datos) */
     .sidebar-kpi {
         background: rgba(13, 17, 23, 0.85);
         border: 1px solid rgba(0, 243, 255, 0.2);
@@ -93,7 +93,7 @@ st.markdown("""
         margin-bottom: 12px;
         color: #f8fafc;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        transition: all 0.25s ease;
+        transition: all 0.25 ease;
     }
     
     .sidebar-kpi:hover {
@@ -239,12 +239,13 @@ tickets_lista = cargar_tickets()
 # SIDEBAR: Panel Estadístico Avanzado & Ejecutivo (Cyber HUD)
 # ---------------------------------------------------------
 with st.sidebar:
+    # Header del Panel con Avatar/Icono estilizado
     st.markdown("""
     <div class="sidebar-profile">
         <img src="https://png.pngtree.com/png-vector/20241009/ourmid/pngtree-3d-robots-png-image_14024071.png" width="55">
         <div class="profile-info">
             <h3>NEXUS AGENT</h3>
-            <p>● ONLINE | v2.5</p>
+            <p>● ONLINE | v2.4</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -296,7 +297,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("""
     <div class="cyber-sys-status">
-        <div><b>Motor IA:</b> <span style="color: #00f3ff;">Gemini 2.5 Flash</span></div>
+        <div><b>Motor IA:</b> <span style="color: #00f3ff;">Gemini 3.5 Flash Lite</span></div>
         <div><b>Estado API:</b> <span style="color: #00ff66;">🟢 Sync Activa</span></div>
         <div><b>Persistencia:</b> <span style="color: #f8fafc;">JSON Local</span></div>
     </div>
@@ -334,10 +335,10 @@ with tab_nueva:
     with col_info:
         st.info(
             "💡 **¿Cómo funciona este agente?**\n\n"
-            "1. **Extrae** tipo, prioridad y sentimiento.\n"
-            "2. **Justifica** técnicamente el nivel de urgencia.\n"
-            "3. **Planifica** tareas clave para el equipo interno.\n"
-            "4. **Redacta** un borrador formal y empático de respuesta."
+            "1. **Extrae** el tipo de solicitud (Petición, Queja, Reclamo, Sugerencia).\n"
+            "2. **Determina** el nivel de urgencia y el sentimiento del usuario.\n"
+            "3. **Enruta** al departamento correspondiente.\n"
+            "4. **Genera** un borrador formal de respuesta."
         )
 
     if btn_procesar:
@@ -374,17 +375,12 @@ with tab_nueva:
                         st.success("✅ **AUTOMATIZABLE:** Este caso puede gestionarse mediante respuesta estándar de primer nivel.")
 
                     st.markdown(f"**Resumen Ejecutivo:** {analisis.resumen}")
-                    st.markdown(f"**Justificación de Prioridad:** {analisis.justificacion_prioridad}")
-
-                    st.markdown("**🛠️ Pasos de Acción Interna Recomendados:**")
-                    for paso in analisis.pasos_accion_interna:
-                        st.markdown(f"- {paso}")
 
                     st.markdown("### 📩 Borrador de Respuesta Generado por IA")
                     st.text_area(
                         "Respuesta lista para revisión/envío al cliente:",
                         value=analisis.borrador_respuesta,
-                        height=180
+                        height=150
                     )
 
                 except Exception as e:
@@ -422,14 +418,5 @@ with tab_historial:
                 col_c.write(f"**Escalado a Humano:** {'🔴 Sí' if a['requiere_escalado_humano'] else '🟢 No'}")
                 
                 st.markdown(f"\n**Resumen:** {a['resumen']}")
-                
-                if "justificacion_prioridad" in a:
-                    st.markdown(f"**Justificación:** {a['justificacion_prioridad']}")
-                
-                if "pasos_accion_interna" in a:
-                    st.markdown("**Pasos Internos Sugeridos:**")
-                    for p_paso in a["pasos_accion_interna"]:
-                        st.markdown(f"- {p_paso}")
-
                 st.markdown(f"**Respuesta propuesta:**")
                 st.info(a['borrador_respuesta'])
