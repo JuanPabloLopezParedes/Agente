@@ -7,6 +7,9 @@ from agente_pqrs import (
     analizar_pqrs, 
     guardar_ticket, 
     cambiar_estado_ticket, 
+    validar_correo_existente,
+    generar_pdf_plan_solucion,
+    enviar_correo_con_pdf,
     DB_FILE, 
     Prioridad, 
     EstadoTicket
@@ -20,23 +23,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. CSS Personalizado - Estilo Cibernético (Tech HUD)
+# 2. CSS Personalizado
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;600;700&display=swap');
     
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    h1, h2, h3, .cyber-font {
-        font-family: 'Chakra Petch', sans-serif !important;
-        letter-spacing: 0.05em;
-    }
-
-    code, pre {
-        font-family: 'JetBrains Mono', monospace !important;
-    }
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { font-family: 'Chakra Petch', sans-serif !important; letter-spacing: 0.05em; }
+    code, pre { font-family: 'JetBrains Mono', monospace !important; }
 
     .main-header {
         background: linear-gradient(135deg, #090d16 0%, #0f172a 100%);
@@ -45,99 +39,39 @@ st.markdown("""
         color: #ffffff;
         margin-bottom: 2rem;
         border: 1px solid rgba(0, 243, 255, 0.25);
-        box-shadow: 0 0 20px rgba(0, 243, 255, 0.12), inset 0 0 15px rgba(0, 243, 255, 0.03);
+        box-shadow: 0 0 20px rgba(0, 243, 255, 0.12);
         position: relative;
-        overflow: hidden;
     }
     
-    .main-header::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; height: 2px;
-        background: linear-gradient(90deg, #00f3ff, #a855f7, #00f3ff);
-    }
-    
-    .main-header h1 {
-        font-family: 'Chakra Petch', sans-serif;
-        color: #00f3ff;
-        font-weight: 700;
-        font-size: 2.2rem;
-        margin: 0;
-        text-shadow: 0 0 12px rgba(0, 243, 255, 0.4);
-    }
+    .main-header h1 { color: #00f3ff; font-weight: 700; font-size: 2.2rem; margin: 0; }
 
     .badge {
-        display: inline-block;
-        padding: 0.4em 0.85em;
-        font-family: 'Chakra Petch', sans-serif;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 1;
-        text-align: center;
-        white-space: nowrap;
-        border-radius: 4px;
-        color: #ffffff !important;
-        text-transform: uppercase;
+        display: inline-block; padding: 0.4em 0.85em;
+        font-family: 'Chakra Petch', sans-serif; font-size: 0.85rem; font-weight: 700;
+        border-radius: 4px; color: #ffffff !important; text-transform: uppercase;
     }
 
     .sidebar-kpi {
-        background: rgba(13, 17, 23, 0.85);
-        border: 1px solid rgba(0, 243, 255, 0.2);
-        border-left: 4px solid #00f3ff;
-        border-radius: 8px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
-        color: #f8fafc;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        transition: all 0.25s ease;
+        background: rgba(13, 17, 23, 0.85); border: 1px solid rgba(0, 243, 255, 0.2);
+        border-left: 4px solid #00f3ff; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; color: #f8fafc;
     }
 
-    .kpi-title {
-        font-family: 'Chakra Petch', sans-serif;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #00f3ff;
-        font-weight: 600;
-        margin-bottom: 4px;
-    }
+    .kpi-title { font-family: 'Chakra Petch', sans-serif; font-size: 0.75rem; color: #00f3ff; font-weight: 600; }
+    .kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 1.7rem; font-weight: 700; color: #ffffff; }
 
-    .kpi-value {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.7rem;
-        font-weight: 700;
-        color: #ffffff;
-    }
-
-    .sidebar-profile {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding-bottom: 1rem;
-        border-bottom: 1px solid rgba(0, 243, 255, 0.2);
-        margin-bottom: 1.2rem;
-    }
+    .sidebar-profile { display: flex; align-items: center; gap: 12px; padding-bottom: 1rem; border-bottom: 1px solid rgba(0, 243, 255, 0.2); margin-bottom: 1.2rem; }
 
     .stButton>button {
-        font-family: 'Chakra Petch', sans-serif !important;
-        border-radius: 6px !important;
-        font-weight: 700 !important;
-        text-transform: uppercase !important;
-        border: 1px solid #00f3ff !important;
-        background: linear-gradient(135deg, #090d16 0%, #1e1b4b 100%) !important;
-        color: #00f3ff !important;
-        box-shadow: 0 0 10px rgba(0, 243, 255, 0.2) !important;
+        font-family: 'Chakra Petch', sans-serif !important; border-radius: 6px !important;
+        font-weight: 700 !important; text-transform: uppercase !important;
+        border: 1px solid #00f3ff !important; background: linear-gradient(135deg, #090d16 0%, #1e1b4b 100%) !important;
+        color: #00f3ff !important; box-shadow: 0 0 10px rgba(0, 243, 255, 0.2) !important;
     }
 
     .cyber-sys-status {
-        background: rgba(9, 13, 22, 0.9);
-        padding: 12px;
-        border-radius: 6px;
-        border: 1px solid rgba(0, 243, 255, 0.2);
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.78rem;
-        color: #94a3b8;
+        background: rgba(9, 13, 22, 0.9); padding: 12px; border-radius: 6px;
+        border: 1px solid rgba(0, 243, 255, 0.2); font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78rem; color: #94a3b8;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -175,12 +109,13 @@ def cargar_tickets():
 def generar_csv(tickets):
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["ID Ticket", "Fecha", "Estado", "Tipo", "Prioridad", "Departamento", "SLA (Horas)", "Alerta Legal", "Mensaje Original"])
+    writer.writerow(["ID Ticket", "Fecha", "Correo Cliente", "Estado", "Tipo", "Prioridad", "Departamento", "SLA (Horas)", "Alerta Legal", "Mensaje Original"])
     for t in tickets:
         a = t.get("analisis", {})
         writer.writerow([
             t.get("id_ticket"),
             t.get("fecha_registro"),
+            t.get("correo_cliente", "N/A"),
             t.get("estado", "Pendiente"),
             a.get("tipo"),
             a.get("prioridad"),
@@ -202,7 +137,7 @@ with st.sidebar:
         <img src="https://png.pngtree.com/png-vector/20241009/ourmid/pngtree-3d-robots-png-image_14024071.png" width="55">
         <div class="profile-info">
             <h3>NEXUS AGENT</h3>
-            <p>● ONLINE | v3.0 Pro</p>
+            <p>● ONLINE | v3.5 Pro</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -233,8 +168,8 @@ with st.sidebar:
     st.markdown("""
     <div class="cyber-sys-status">
         <div><b>Motor:</b> <span style="color: #00f3ff;">Gemini Multimodels</span></div>
-        <div><b>SLA Engine:</b> <span style="color: #00ff66;">🟢 Activo</span></div>
-        <div><b>Persistencia:</b> <span style="color: #f8fafc;">JSON Store</span></div>
+        <div><b>Validador DNS:</b> <span style="color: #00ff66;">🟢 Activo</span></div>
+        <div><b>PDF Engine:</b> <span style="color: #00ff66;">🟢 ReportLab</span></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -244,7 +179,7 @@ with st.sidebar:
 st.markdown("""
 <div class="main-header">
     <h1>🤖 Agente Inteligente de Gestión de PQRS</h1>
-    <p>Triaje automático, cálculo de SLA, detección de riesgos legales y enrutamiento operativo.</p>
+    <p>Triaje automático, verificación de correo, generación de PDF y notificación de Plan de Soluciones.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -258,33 +193,56 @@ with tab_nueva:
 
     with col_input:
         st.subheader("Ingreso de la Solicitud")
+        
+        correo_usuario = st.text_input(
+            "📧 Correo electrónico del remitente:",
+            placeholder="ejemplo@dominio.com"
+        )
+
         texto_cliente = st.text_area(
             "Escriba el mensaje emitido por el usuario:",
-            height=160,
-            placeholder="Ejemplo: Buenas tardes, llevo dos días sin servicio de internet en mi domicilio. Si no me dan respuesta hoy mismo instauraré una tutela con mi abogado..."
+            height=140,
+            placeholder="Ejemplo: Buenas tardes, llevo dos días sin servicio de internet en mi domicilio..."
         )
-        btn_procesar = st.button("🚀 Analizar Solicitud con IA", type="primary", use_container_width=True)
+
+        btn_procesar = st.button("🚀 Analizar Solicitud y Enviar Plan en PDF", type="primary", use_container_width=True)
 
     with col_info:
         st.info(
-            "💡 **Capacidades Avanzadas v3.0:**\n\n"
-            "1. **Cálculo de SLA:** Asigna horas límite de respuesta.\n"
-            "2. **Detección Legal:** Identifica amenazas reglamentarias o demandas.\n"
-            "3. **Checklist Operativo:** Pasos concretos para el personal técnico.\n"
-            "4. **Borrador Empático:** Redacción automatizada de respuesta."
+            "💡 **Nuevas Funciones v3.5:**\n\n"
+            "1. **Validación de Correo:** Comprueba la sintaxis y existencia del dominio.\n"
+            "2. **Plan de Soluciones PDF:** Genera un informe descargable completo.\n"
+            "3. **Notificación Automática:** Envía un correo con el PDF adjunto al cliente."
         )
 
     if btn_procesar:
-        if not texto_cliente.strip():
-            st.warning("⚠️ Por favor ingrese un mensaje válido antes de ejecutar el análisis.")
+        es_correo_valido, msj_validacion = validar_correo_existente(correo_usuario)
+
+        if not correo_usuario.strip():
+            st.warning("⚠️ Por favor ingrese su correo electrónico para recibir la respuesta.")
+        elif not es_correo_valido:
+            st.error(f"❌ **Correo Inválido:** {msj_validacion}")
+        elif not texto_cliente.strip():
+            st.warning("⚠️ Por favor ingrese el mensaje de la PQRS.")
         else:
-            with st.spinner("🤖 El agente está evaluando su caso..."):
+            with st.spinner("🤖 El agente está evaluando la solicitud y generando el documento PDF..."):
                 try:
                     analisis = analizar_pqrs(texto_cliente)
-                    ticket = guardar_ticket(analisis, texto_cliente)
+                    ticket = guardar_ticket(analisis, texto_cliente, correo_usuario)
+
+                    # Generar PDF
+                    pdf_bytes = generar_pdf_plan_solucion(ticket)
+
+                    # Enviar Correo
+                    correo_enviado, msj_envio = enviar_correo_con_pdf(correo_usuario, ticket, pdf_bytes)
 
                     st.markdown("---")
-                    st.success(f"✅ **Ticket Generado Exitosamente:** `{ticket['id_ticket']}` | **Estado Inicial:** `Pendiente`")
+                    st.success(f"✅ **Ticket Generado Exitosamente:** `{ticket['id_ticket']}` | **Correo:** `{correo_usuario}`")
+
+                    if correo_enviado:
+                        st.success(f"📧 {msj_envio}")
+                    else:
+                        st.warning(f"⚠️ {msj_envio}")
 
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Tipo de PQRS", analisis.tipo.value)
@@ -295,43 +253,36 @@ with tab_nueva:
                         unsafe_allow_html=True
                     )
 
-                    st.markdown("### 📋 Diagnóstico & Riesgos")
-                    
-                    if analisis.alerta_legal_o_regulatoria:
-                        st.warning("⚖️ **ALERTA LEGAL / REGULATORIA DETECTADA:** El cliente menciona posibles acciones legales o entes reguladores. Tratar con máxima cautela.")
+                    st.markdown("### 📋 Diagnóstico & Documentos")
 
-                    if analisis.requiere_escalado_humano or analisis.prioridad in [Prioridad.ALTA, Prioridad.CRITICA]:
-                        st.error(
-                            f"🚨 **REQUIERE INTERVENCIÓN HUMANA URGENTE**\n\n"
-                            f"El agente ha determinado que este caso debe ser gestionado por el departamento de **{analisis.departamento.value}**."
+                    col_pdf, col_summary = st.columns([1, 2])
+                    with col_pdf:
+                        st.download_button(
+                            label="📄 Descargar Plan de Soluciones (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"Plan_Soluciones_{ticket['id_ticket']}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
                         )
-                    else:
-                        st.success("✅ **AUTOMATIZABLE:** Este caso puede gestionarse mediante respuesta estándar de primer nivel.")
 
-                    st.markdown(f"**Resumen Ejecutivo:** {analisis.resumen}")
+                    with col_summary:
+                        st.markdown(f"**Resumen Ejecutivo:** {analisis.resumen}")
 
                     col_acc, col_resp = st.columns(2)
                     with col_acc:
-                        st.markdown("### 🛠️ Acciones Recomendadas para el Equipo")
+                        st.markdown("### 🛠️ Acciones Recomendadas")
                         for idx, accion in enumerate(analisis.acciones_sugeridas, 1):
                             st.write(f"**{idx}.** {accion}")
-                        
-                        st.markdown("**Palabras Clave Extraídas:**")
-                        st.write(" • ".join([f"`{tag}`" for tag in analisis.palabras_clave]))
 
                     with col_resp:
-                        st.markdown("### 📩 Borrador de Respuesta al Cliente")
-                        st.text_area(
-                            "Respuesta sugerida:",
-                            value=analisis.borrador_respuesta,
-                            height=170
-                        )
+                        st.markdown("### 📩 Borrador de Respuesta")
+                        st.text_area("Respuesta oficial:", value=analisis.borrador_respuesta, height=140)
 
                 except Exception as e:
                     st.error(f"Error procesando la solicitud: {e}")
 
 # ---------------------------------------------------------
-# PESTAÑA 2: Historial, Filtros y Gestión de Estados
+# PESTAÑA 2: Historial, Filtros y Gestión
 # ---------------------------------------------------------
 with tab_historial:
     st.subheader("Gestión e Historial de Solicitudes")
@@ -341,14 +292,12 @@ with tab_historial:
     if not tickets_actualizados:
         st.info("No hay tickets almacenados en el sistema actualmente.")
     else:
-        # Barra superior de Filtros y Descarga
         col_f1, col_f2, col_f3, col_f4 = st.columns([2, 1, 1, 1])
         
-        busqueda = col_f1.text_input("🔍 Buscar por ID o texto:", placeholder="Ej: PQRS-8F2A o internet")
+        busqueda = col_f1.text_input("🔍 Buscar por ID, correo o texto:", placeholder="Ej: PQRS-8F2A o usuario@gmail.com")
         filtro_prioridad = col_f2.selectbox("Filtrar Prioridad", ["Todas"] + [p.value for p in Prioridad])
         filtro_estado = col_f3.selectbox("Filtrar Estado", ["Todos"] + [e.value for e in EstadoTicket])
         
-        # Botón de Descargar CSV
         csv_data = generar_csv(tickets_actualizados)
         col_f4.download_button(
             label="📥 Exportar CSV",
@@ -358,12 +307,12 @@ with tab_historial:
             use_container_width=True
         )
 
-        # Filtrado dinámico
         filtrados = []
         for t in tickets_actualizados:
             a = t.get("analisis", {})
             match_busqueda = (
                 busqueda.lower() in t["id_ticket"].lower() or 
+                busqueda.lower() in t.get("correo_cliente", "").lower() or
                 busqueda.lower() in t["mensaje_original"].lower() or 
                 busqueda.lower() in a.get("resumen", "").lower()
             )
@@ -380,14 +329,14 @@ with tab_historial:
             p_val = a.get("prioridad", "Baja")
             estado_curr = t.get("estado", EstadoTicket.PENDIENTE.value)
             
-            titulo_expander = f"🎫 {t['id_ticket']} | {estado_curr.upper()} | {p_val.upper()} | {a.get('tipo')} - {a.get('departamento')} ({t['fecha_registro']})"
+            titulo_expander = f"🎫 {t['id_ticket']} | {t.get('correo_cliente', 'S/N')} | {estado_curr.upper()} | {p_val.upper()}"
             
             with st.expander(titulo_expander):
                 col_info_t, col_est_t = st.columns([3, 1])
                 
                 with col_info_t:
-                    st.markdown(f"**Mensaje Original del Cliente:**")
-                    st.caption(f'"{t["mensaje_original"]}"')
+                    st.markdown(f"**Correo Cliente:** `{t.get('correo_cliente', 'No registrado')}`")
+                    st.markdown(f"**Mensaje Original:** \"{t['mensaje_original']}\"")
                     st.markdown(f"**Resumen:** {a.get('resumen')}")
                     
                 with col_est_t:
@@ -404,14 +353,11 @@ with tab_historial:
                             st.rerun()
 
                 st.markdown("---")
-                c_a, c_b, c_c, c_d = st.columns(4)
-                c_a.markdown(f"**Prioridad:** {obtener_badge_prioridad(p_val)}", unsafe_allow_html=True)
-                c_b.markdown(f"**Estado:** {obtener_badge_estado(estado_curr)}", unsafe_allow_html=True)
-                c_c.write(f"**SLA:** {a.get('sla_horas', 'N/A')} Horas")
-                c_d.write(f"**Alerta Legal:** {'🚨 SÍ' if a.get('alerta_legal_o_regulatoria') else '🟢 NO'}")
-
-                st.markdown("\n**Acciones Sugeridas:**")
-                st.write(", ".join(a.get("acciones_sugeridas", [])))
-
-                st.markdown("**Borrador Propuesto:**")
-                st.info(a.get('borrador_respuesta'))
+                pdf_t_bytes = generar_pdf_plan_solucion(t)
+                st.download_button(
+                    label="📄 Descargar PDF de este Ticket",
+                    data=pdf_t_bytes,
+                    file_name=f"Plan_Soluciones_{t['id_ticket']}.pdf",
+                    mime="application/pdf",
+                    key=f"dl_pdf_{t['id_ticket']}"
+                )

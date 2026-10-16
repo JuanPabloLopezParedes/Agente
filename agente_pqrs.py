@@ -2,12 +2,29 @@ import os
 import json
 import uuid
 import time
+import re
+import io
+import smtplib
 from datetime import datetime
 from enum import Enum
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
+
+# Librería para verificación de registros MX de DNS
+import dns.resolver
+
+# Librerías para generación de PDF
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+# Librerías para envío de correos con adjuntos
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 
 # 1. Cargar configuración y cliente
 load_dotenv()
@@ -43,23 +60,39 @@ class EstadoTicket(str, Enum):
     EN_PROCESO = "En Proceso"
     RESUELTO = "Resuelto"
 
-# 3. Esquema Pydantic Ampliado con Métricas de Negocio
+# 3. Esquema Pydantic
 class AnalisisPQRS(BaseModel):
     tipo: TipoPQRS = Field(description="Clasificación principal del mensaje del usuario")
     prioridad: Prioridad = Field(description="Nivel de urgencia evaluado")
     departamento: Departamento = Field(description="Área encargada de atender la solicitud")
-    sentimiento_cliente: str = Field(description="Estado emocional del cliente (ej. Frustrado, Neutral, Agradecido)")
+    sentimiento_cliente: str = Field(description="Estado emocional del cliente")
     resumen: str = Field(description="Resumen breve del caso en una sola oración")
     requiere_escalado_humano: bool = Field(description="True si la solicitud requiere intervención humana urgente")
-    alerta_legal_o_regulatoria: bool = Field(description="True si menciona entidades reguladoras, tutelas, abogados o demandas")
-    sla_horas: int = Field(description="Horas máximas de compromiso de respuesta (SLA) sugeridas según gravedad")
-    acciones_sugeridas: list[str] = Field(description="Lista de 2 a 3 pasos concretos que el equipo interno debe ejecutar")
-    palabras_clave: list[str] = Field(description="Lista de 3 a 5 palabras clave extraídas del caso")
+    alerta_legal_o_regulatoria: bool = Field(description="True si menciona entidades reguladoras, tutelas o demandas")
+    sla_horas: int = Field(description="Horas máximas de compromiso de respuesta (SLA) sugeridas")
+    acciones_sugeridas: list[str] = Field(description="Lista de 2 a 3 pasos concretos para resolver el caso")
+    palabras_clave: list[str] = Field(description="Lista de 3 a 5 palabras clave extraídas")
     borrador_respuesta: str = Field(description="Respuesta profesional y empática dirigida al cliente")
 
-# 4. Función de análisis con redundancia de modelos (Fallback y Reintentos)
-# 4. Función de análisis con modelos activos y estables
-# 4. Función de análisis con los modelos actualizados de Google
+# 4. Función de Validación de Correo Electrónico
+def validar_correo_existente(email: str) -> tuple[bool, str]:
+    email = email.strip()
+    
+    # a. Validación Sintáctica con Expresión Regular
+    patron = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(patron, email):
+        return False, "El formato del correo electrónico es inválido (ejemplo: usuario@dominio.com)."
+    
+    # b. Verificación de Dominio Activo mediante Consulta DNS MX
+    dominio = email.split('@')[1]
+    try:
+        dns.resolver.resolve(dominio, 'MX')
+        return True, "Correo válido y dominio de correo existente."
+    except Exception:
+        # Retorna éxito si la sintaxis es válida pero la red local bloquea consultas DNS externas
+        return True, "Sintaxis de correo válida."
+
+# 5. Función de análisis con IA (Gemini API)
 def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     prompt = f"""
     Eres un agente inteligente experto en gestión y triaje operativo de PQRS.
@@ -69,7 +102,6 @@ def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     \"\"\"{texto_cliente}\"\"\"
     """
 
-    # Modelos activos recomendados por la API de Google Gemini
     modelos_candidatos = [
         "gemini-3.5-flash-lite",
         "gemini-2.5-flash"
@@ -94,20 +126,161 @@ def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
             except Exception as e:
                 ultimo_error = e
                 error_str = str(e)
-                # Si el servidor se encuentra saturado (503/429), reintenta con pausa
                 if any(k in error_str for k in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"]):
                     time.sleep(2 * (intento + 1))
                 else:
-                    break  # Si el modelo no existe (404) u ocurre otro error, pasa de inmediato al siguiente modelo
+                    break
 
     raise RuntimeError(f"El servicio de IA no estuvo disponible. Detalle: {ultimo_error}")
-# 5. Sistema de Persistencia y Gestión de Estados
+
+# 6. Generador de PDF de Plan de Soluciones
+def generar_pdf_plan_solucion(ticket: dict) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=16,
+        textColor=colors.HexColor('#0f172a'),
+        spaceAfter=10
+    )
+
+    subtitle_style = ParagraphStyle(
+        'SubTitleStyle',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=11,
+        textColor=colors.HexColor('#0284c7'),
+        spaceAfter=6
+    )
+
+    normal_style = ParagraphStyle(
+        'NormalStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor('#334155')
+    )
+
+    story = []
+    analisis = ticket.get("analisis", {})
+
+    # Encabezado
+    story.append(Paragraph("NEXUS AGENT - PLAN DE SOLUCIÓN Y RESPUESTA PQRS", title_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#0284c7'), spaceAfter=12))
+
+    # Metadatos del Ticket
+    data_meta = [
+        [Paragraph("<b>ID Ticket:</b>", normal_style), Paragraph(ticket.get("id_ticket", ""), normal_style),
+         Paragraph("<b>Fecha:</b>", normal_style), Paragraph(ticket.get("fecha_registro", ""), normal_style)],
+        [Paragraph("<b>Tipo:</b>", normal_style), Paragraph(str(analisis.get("tipo")), normal_style),
+         Paragraph("<b>Prioridad:</b>", normal_style), Paragraph(str(analisis.get("prioridad")), normal_style)],
+        [Paragraph("<b>Departamento:</b>", normal_style), Paragraph(str(analisis.get("departamento")), normal_style),
+         Paragraph("<b>SLA Compromiso:</b>", normal_style), Paragraph(f"{analisis.get('sla_horas', 'N/A')} Horas", normal_style)],
+    ]
+
+    t_meta = Table(data_meta, colWidths=[90, 160, 90, 160])
+    t_meta.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#e2e8f0')),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('PADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(t_meta)
+    story.append(Spacer(1, 12))
+
+    # Diagnóstico del Caso
+    story.append(Paragraph("1. Diagnóstico y Resumen del Caso", subtitle_style))
+    story.append(Paragraph(f"<b>Mensaje Original:</b> \"{ticket.get('mensaje_original', '')}\"", normal_style))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(f"<b>Resumen de IA:</b> {analisis.get('resumen', '')}", normal_style))
+    story.append(Spacer(1, 10))
+
+    # Plan de Acción Operativo
+    story.append(Paragraph("2. Plan de Acción y Checklist Operativo", subtitle_style))
+    acciones = analisis.get("acciones_sugeridas", [])
+    for idx, acc in enumerate(acciones, 1):
+        story.append(Paragraph(f"<b>Paso {idx}:</b> {acc}", normal_style))
+        story.append(Spacer(1, 3))
+    story.append(Spacer(1, 10))
+
+    # Respuesta Oficial
+    story.append(Paragraph("3. Respuesta Oficial para el Cliente", subtitle_style))
+    story.append(Paragraph(analisis.get("borrador_respuesta", ""), normal_style))
+    story.append(Spacer(1, 15))
+
+    # Pie de página
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceAfter=8))
+    story.append(Paragraph("Documento oficial generado automáticamente por el Sistema de Gestión NEXUS AGENT.", normal_style))
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
+# 7. Envío de Correo Electrónico
+def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -> tuple[bool, str]:
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", 587))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+
+    if not smtp_user or not smtp_password:
+        return False, "No se configuraron las credenciales de correo en el archivo .env (SMTP_USER / SMTP_PASSWORD)."
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = correo_destino
+        msg['Subject'] = f"Respuesta a su PQRS [{ticket.get('id_ticket')}] - Plan de Soluciones"
+
+        id_t = ticket.get('id_ticket')
+        cuerpo = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+            <h2 style="color: #0284c7;">Estimado(a) Usuario(a),</h2>
+            <p>Le informamos que su solicitud registrada bajo el radicado <b>{id_t}</b> ha sido analizada y procesada con éxito.</p>
+            <p>Adjunto a este correo encontrará el documento en formato <b>PDF</b> con el <b>Plan de Soluciones y Respuesta Oficial</b>.</p>
+            <hr style="border: none; border-top: 1px solid #ccc;">
+            <p style="font-size: 0.85rem; color: #666;">Este es un mensaje automático generado por el Agente Inteligente NEXUS AGENT.</p>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(cuerpo, 'html'))
+
+        # Adjuntar PDF
+        adjunto = MIMEApplication(pdf_bytes, _subtype="pdf")
+        adjunto.add_header('Content-Disposition', 'attachment', filename=f"Plan_Soluciones_{id_t}.pdf")
+        msg.attach(adjunto)
+
+        # Enviar vía SMTP
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+        server.close()
+
+        return True, f"Correo enviado exitosamente a: {correo_destino}"
+    except Exception as e:
+        return False, f"Error al enviar el correo: {str(e)}"
+
+# 8. Persistencia de Datos
 DB_FILE = "tickets_pqrs.json"
 
-def guardar_ticket(analisis: AnalisisPQRS, texto_original: str):
+def guardar_ticket(analisis: AnalisisPQRS, texto_original: str, correo_cliente: str):
     ticket_data = {
         "id_ticket": f"PQRS-{str(uuid.uuid4())[:8].upper()}",
         "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "correo_cliente": correo_cliente,
         "estado": EstadoTicket.PENDIENTE.value,
         "mensaje_original": texto_original,
         "analisis": analisis.model_dump()
