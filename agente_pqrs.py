@@ -58,6 +58,8 @@ class AnalisisPQRS(BaseModel):
     borrador_respuesta: str = Field(description="Respuesta profesional y empática dirigida al cliente")
 
 # 4. Función de análisis con redundancia de modelos (Fallback y Reintentos)
+# 4. Función de análisis con modelos activos y estables
+# 4. Función de análisis con los modelos actualizados de Google
 def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     prompt = f"""
     Eres un agente inteligente experto en gestión y triaje operativo de PQRS.
@@ -67,10 +69,10 @@ def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
     \"\"\"{texto_cliente}\"\"\"
     """
 
+    # Modelos activos recomendados por la API de Google Gemini
     modelos_candidatos = [
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-1.5-flash"
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash"
     ]
 
     ultimo_error = None
@@ -92,13 +94,13 @@ def analizar_pqrs(texto_cliente: str) -> AnalisisPQRS:
             except Exception as e:
                 ultimo_error = e
                 error_str = str(e)
+                # Si el servidor se encuentra saturado (503/429), reintenta con pausa
                 if any(k in error_str for k in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"]):
                     time.sleep(2 * (intento + 1))
                 else:
-                    break
+                    break  # Si el modelo no existe (404) u ocurre otro error, pasa de inmediato al siguiente modelo
 
     raise RuntimeError(f"El servicio de IA no estuvo disponible. Detalle: {ultimo_error}")
-
 # 5. Sistema de Persistencia y Gestión de Estados
 DB_FILE = "tickets_pqrs.json"
 
