@@ -231,21 +231,22 @@ def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -
     try:
         id_t = ticket.get('id_ticket', '')
 
-        # Crear mensaje con la API moderna de Python (Soporte UTF-8 nativo)
+        # 1. Crear el objeto EmailMessage
         msg = EmailMessage()
         msg['Subject'] = f"Respuesta a su PQRS [{id_t}] - Plan de Soluciones"
         msg['From'] = smtp_user
         msg['To'] = correo_destino
 
-        # Versión en texto plano
-        msg.set_content(
+        # 2. Contenido en texto plano forzando UTF-8
+        texto_plano = (
             f"Estimado(a) Usuario(a),\n\n"
             f"Le informamos que su solicitud registrada bajo el radicado {id_t} ha sido analizada y procesada con éxito.\n"
             f"Adjunto a este correo encontrará el documento PDF con el Plan de Soluciones y Respuesta Oficial.\n\n"
             f"Atentamente,\nNEXUS AGENT"
         )
+        msg.set_content(texto_plano, charset='utf-8')
 
-        # Versión en HTML
+        # 3. Contenido HTML forzando UTF-8
         cuerpo_html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; color: #333;">
@@ -257,9 +258,9 @@ def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -
         </body>
         </html>
         """
-        msg.add_alternative(cuerpo_html, subtype='html')
+        msg.add_alternative(cuerpo_html, subtype='html', charset='utf-8')
 
-        # Adjuntar PDF
+        # 4. Adjuntar archivo PDF
         msg.add_attachment(
             pdf_bytes,
             maintype='application',
@@ -267,16 +268,15 @@ def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -
             filename=f"Plan_Soluciones_{id_t}.pdf"
         )
 
-        # Enviar vía SMTP
+        # 5. Enviar pasando el mensaje como BYTES (evita la conversión a ASCII)
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
-            server.send_message(msg)
+            server.sendmail(smtp_user, correo_destino, msg.as_bytes())
 
         return True, f"Correo enviado exitosamente a: {correo_destino}"
     except Exception as e:
         return False, f"Error al enviar el correo: {str(e)}"
-
 # 8. Persistencia de Datos
 DB_FILE = "tickets_pqrs.json"
 
