@@ -21,10 +21,8 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-# Librerías para envío de correos con adjuntos
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
+# Librería moderna de correo con soporte UTF-8 nativo
+from email.message import EmailMessage
 
 # 1. Cargar configuración y cliente
 load_dotenv()
@@ -89,7 +87,6 @@ def validar_correo_existente(email: str) -> tuple[bool, str]:
         dns.resolver.resolve(dominio, 'MX')
         return True, "Correo válido y dominio de correo existente."
     except Exception:
-        # Retorna éxito si la sintaxis es válida pero la red local bloquea consultas DNS externas
         return True, "Sintaxis de correo válida."
 
 # 5. Función de análisis con IA (Gemini API)
@@ -174,11 +171,9 @@ def generar_pdf_plan_solucion(ticket: dict) -> bytes:
     story = []
     analisis = ticket.get("analisis", {})
 
-    # Encabezado
     story.append(Paragraph("NEXUS AGENT - PLAN DE SOLUCIÓN Y RESPUESTA PQRS", title_style))
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#0284c7'), spaceAfter=12))
 
-    # Metadatos del Ticket
     data_meta = [
         [Paragraph("<b>ID Ticket:</b>", normal_style), Paragraph(ticket.get("id_ticket", ""), normal_style),
          Paragraph("<b>Fecha:</b>", normal_style), Paragraph(ticket.get("fecha_registro", ""), normal_style)],
@@ -198,14 +193,12 @@ def generar_pdf_plan_solucion(ticket: dict) -> bytes:
     story.append(t_meta)
     story.append(Spacer(1, 12))
 
-    # Diagnóstico del Caso
     story.append(Paragraph("1. Diagnóstico y Resumen del Caso", subtitle_style))
     story.append(Paragraph(f"<b>Mensaje Original:</b> \"{ticket.get('mensaje_original', '')}\"", normal_style))
     story.append(Spacer(1, 4))
     story.append(Paragraph(f"<b>Resumen de IA:</b> {analisis.get('resumen', '')}", normal_style))
     story.append(Spacer(1, 10))
 
-    # Plan de Acción Operativo
     story.append(Paragraph("2. Plan de Acción y Checklist Operativo", subtitle_style))
     acciones = analisis.get("acciones_sugeridas", [])
     for idx, acc in enumerate(acciones, 1):
@@ -213,12 +206,10 @@ def generar_pdf_plan_solucion(ticket: dict) -> bytes:
         story.append(Spacer(1, 3))
     story.append(Spacer(1, 10))
 
-    # Respuesta Oficial
     story.append(Paragraph("3. Respuesta Oficial para el Cliente", subtitle_style))
     story.append(Paragraph(analisis.get("borrador_respuesta", ""), normal_style))
     story.append(Spacer(1, 15))
 
-    # Pie de página
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceAfter=8))
     story.append(Paragraph("Documento oficial generado automáticamente por el Sistema de Gestión NEXUS AGENT.", normal_style))
 
@@ -227,7 +218,7 @@ def generar_pdf_plan_solucion(ticket: dict) -> bytes:
     buffer.close()
     return pdf_bytes
 
-# 7. Envío de Correo Electrónico
+# 7. Envío de Correo Electrónico (EmailMessage con UTF-8 NATIVO)
 def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -> tuple[bool, str]:
     smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", 587))
@@ -238,13 +229,24 @@ def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -
         return False, "No se configuraron las credenciales de correo en el archivo .env (SMTP_USER / SMTP_PASSWORD)."
 
     try:
-        msg = MIMEMultipart()
+        id_t = ticket.get('id_ticket', '')
+
+        # Crear mensaje con la API moderna de Python (Soporte UTF-8 nativo)
+        msg = EmailMessage()
+        msg['Subject'] = f"Respuesta a su PQRS [{id_t}] - Plan de Soluciones"
         msg['From'] = smtp_user
         msg['To'] = correo_destino
-        msg['Subject'] = f"Respuesta a su PQRS [{ticket.get('id_ticket')}] - Plan de Soluciones"
 
-        id_t = ticket.get('id_ticket')
-        cuerpo = f"""
+        # Versión en texto plano
+        msg.set_content(
+            f"Estimado(a) Usuario(a),\n\n"
+            f"Le informamos que su solicitud registrada bajo el radicado {id_t} ha sido analizada y procesada con éxito.\n"
+            f"Adjunto a este correo encontrará el documento PDF con el Plan de Soluciones y Respuesta Oficial.\n\n"
+            f"Atentamente,\nNEXUS AGENT"
+        )
+
+        # Versión en HTML
+        cuerpo_html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; color: #333;">
             <h2 style="color: #0284c7;">Estimado(a) Usuario(a),</h2>
@@ -255,19 +257,21 @@ def enviar_correo_con_pdf(correo_destino: str, ticket: dict, pdf_bytes: bytes) -
         </body>
         </html>
         """
-        msg.attach(MIMEText(cuerpo, 'html'))
+        msg.add_alternative(cuerpo_html, subtype='html')
 
         # Adjuntar PDF
-        adjunto = MIMEApplication(pdf_bytes, _subtype="pdf")
-        adjunto.add_header('Content-Disposition', 'attachment', filename=f"Plan_Soluciones_{id_t}.pdf")
-        msg.attach(adjunto)
+        msg.add_attachment(
+            pdf_bytes,
+            maintype='application',
+            subtype='pdf',
+            filename=f"Plan_Soluciones_{id_t}.pdf"
+        )
 
         # Enviar vía SMTP
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.send_message(msg)
-        server.close()
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.send_message(msg)
 
         return True, f"Correo enviado exitosamente a: {correo_destino}"
     except Exception as e:
