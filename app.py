@@ -362,7 +362,7 @@ with tab_historial:
         filtrados = []
         for t in tickets_actualizados:
             a = t.get("analisis", {})
-             match_busqueda = (
+            match_busqueda = (
                 busqueda.lower() in t["id_ticket"].lower() or 
                 busqueda.lower() in t["mensaje_original"].lower() or 
                 busqueda.lower() in a.get("resumen", "").lower()
